@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calorie Analyzer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f6f6f6;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    header {
+      width: 100%;
+      background: #4CAF50;
+      padding: 1rem;
+      color: white;
+      text-align: center;
+      font-size: 1.5rem;
+    }
+
+    main {
+      width: 90%;
+      max-width: 600px;
+      margin-top: 2rem;
+      text-align: center;
+    }
+
+    .upload-box {
+      background: white;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    input[type="file"] {
+      margin: 1rem 0;
+    }
+
+    .preview {
+      margin: 1rem auto;
+      max-width: 100%;
+      border-radius: 8px;
+      display: none;
+    }
+
+    .progress {
+      margin: 1rem auto;
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #4CAF50;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .card-container {
+      margin-top: 2rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1rem;
+    }
+
+    .card {
+      background: white;
+      padding: 1rem;
+      border-radius: 8px;
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.1);
+      text-align: left;
+    }
+
+    .card h3 {
+      margin: 0.5rem 0;
+    }
+
+    .total {
+      margin-top: 2rem;
+      font-weight: bold;
+      font-size: 1.2rem;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <header>Calorie Analyzer</header>
+  <main>
+    <div class="upload-box">
+      <input type="file" id="imageInput" accept="image/*" onchange="previewImage(event)">
+      <img id="preview" class="preview" alt="Food Preview" />
+      <button onclick="handleImageUpload()">Analyze</button>
+      <div class="progress" id="loader"></div>
+    </div>
+    <div id="totalCalories" class="total"></div>
+    <div class="card-container" id="results"></div>
+  </main>
+
+  <script>
+    function previewImage(event) {
+      const preview = document.getElementById('preview');
+      const file = event.target.files[0];
+      if (file) {
+        preview.src = URL.createObjectURL(file);
+        preview.style.display = 'block';
+      }
+    }
+
+    async function handleImageUpload() {
+      const fileInput = document.getElementById('imageInput');
+      const file = fileInput.files[0];
+      const loader = document.getElementById('loader');
+      const preview = document.getElementById('preview');
+      const totalCalDiv = document.getElementById('totalCalories');
+      if (!file) return alert('Please upload an image.');
+
+      loader.style.display = 'block';
+      totalCalDiv.textContent = '';
+      document.getElementById('results').innerHTML = '';
+
+      const formData = new FormData();
+      formData.append('image', file);
+
+      try {
+        const imgbbRes = await fetch('https://api.imgbb.com/1/upload?key=7b9d6625be5c87ebae954e516c823485', {
+          method: 'POST',
+          body: formData
+        });
+
+        const imgbbData = await imgbbRes.json();
+        const imageUrl = imgbbData.data?.url;
+        if (!imageUrl) throw new Error('Image upload failed');
+
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer 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'
+          },
+          body: JSON.stringify({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            temperature: 0.5,
+            max_completion_tokens: 1024,
+            top_p: 1,
+            stream: false,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: "Give calories of each item in this image in this below JSON format only\n {items:[{item_name:name of item, total_calories:in gm, total_protein:in gm , total_carbs: in gm ,total_fats:in gm},...]}"
+                  },
+                  { type: "image_url", image_url: { url: imageUrl } }
+                ]
+              }
+            ]
+          })
+        });
+
+        const result = await groqRes.json();
+        const rawContent = result.choices?.[0]?.message?.content;
+        if (!rawContent) throw new Error("Invalid response from API");
+
+        let content;
+        try {
+          content = typeof rawContent === 'string' ? JSON.parse(rawContent) : rawContent;
+        } catch {
+          throw new Error("Failed to parse API response");
+        }
+
+        if (!content.items || !Array.isArray(content.items)) {
+          throw new Error("Response format is incorrect: 'items' array missing");
+        }
+
+        const normalizedItems = content.items.map(item => ({
+          item_name: item.item_name || 'Unknown',
+          total_calories: parseFloat(item.total_calories) || 0,
+          total_protein: parseFloat(item.total_protein || item.total_protien) || 0,
+          total_carbs: parseFloat(item.total_carbs || item.toal_carbs) || 0,
+          total_fats: parseFloat(item.total_fats || item.toal_fats) || 0
+        }));
+
+        const totalCalories = normalizedItems.reduce((sum, item) => sum + item.total_calories, 0);
+        totalCalDiv.textContent = `Total Calories in Meal: ${totalCalories.toFixed(2)} kcal`;
+
+        showResults(normalizedItems);
+      } catch (err) {
+        alert("Error: " + err.message);
+        console.error(err);
+      } finally {
+        loader.style.display = 'none';
+      }
+    }
+
+    function showResults(items) {
+      const container = document.getElementById('results');
+      container.innerHTML = '';
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <h3>${item.item_name}</h3>
+          <p><strong>Calories:</strong> ${item.total_calories} kcal</p>
+          <p><strong>Protein:</strong> ${item.total_protein} g</p>
+          <p><strong>Carbs:</strong> ${item.total_carbs} g</p>
+          <p><strong>Fats:</strong> ${item.total_fats} g</p>
+        `;
+        container.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>
+
+
+
+
