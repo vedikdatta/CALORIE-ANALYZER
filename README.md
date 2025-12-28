@@ -84,8 +84,4 @@ git clone https://github.com/your-username/calorie-analyzer.git
 
 ⭐ *If you like this project, consider starring the repository!*
 
-If you want, I can also:
 
-* shorten this further for **resume/portfolio cards**
-* add **GitHub badges**
-* rewrite it for **recruiter-focused impact** 💼
